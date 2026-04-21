@@ -4,10 +4,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const createExpenseSchema = z.object({
   amount: z.union([z.number(), z.string()]),
-  category: z.string().trim().min(1, "Category is required."),
-  description: z.string().trim().min(1, "Description is required."),
-  date: z.string().date("Date must be a valid ISO date."),
-  idempotencyKey: z.string().trim().min(1, "Idempotency key is required."),
+  category: z.string().trim().min(1, "Please select a category."),
+  description: z.string().trim().optional().default(""),
+  date: z
+    .string()
+    .date("Please enter a valid date.")
+    .refine((value) => value <= new Date().toISOString().slice(0, 10), {
+      message: "Date cannot be in the future.",
+    }),
+  idempotencyKey: z.string().trim().min(1, "Request key is required."),
 });
 const listExpensesQuerySchema = z.object({
   category: z
@@ -15,7 +20,9 @@ const listExpensesQuerySchema = z.object({
     .trim()
     .min(1)
     .optional(),
-  sort: z.enum(["date_desc"]).optional(),
+  sort: z
+    .enum(["date_desc", "date_asc", "amount_desc", "amount_asc"])
+    .optional(),
 });
 
 function amountToCents(amount) {
@@ -55,7 +62,7 @@ export async function GET(request) {
   if (!parsedQuery.success) {
     return json(
       {
-        error: "Invalid expense query.",
+        error: "Please choose a valid filter or sort option.",
         details: parsedQuery.error.flatten().fieldErrors,
       },
       { status: 400 },
@@ -63,20 +70,45 @@ export async function GET(request) {
   }
 
   const supabase = createSupabaseServerClient();
-  let expensesQuery = supabase
-    .from("expenses")
-    .select("*")
-    .order("expense_date", { ascending: false })
-    .order("created_at", { ascending: false });
+  let expensesQuery = supabase.from("expenses").select("*");
 
   if (parsedQuery.data.category) {
     expensesQuery = expensesQuery.eq("category", parsedQuery.data.category);
   }
 
+  switch (parsedQuery.data.sort) {
+    case "date_asc":
+      expensesQuery = expensesQuery
+        .order("expense_date", { ascending: true })
+        .order("created_at", { ascending: true });
+      break;
+    case "amount_desc":
+      expensesQuery = expensesQuery
+        .order("amount_cents", { ascending: false })
+        .order("expense_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      break;
+    case "amount_asc":
+      expensesQuery = expensesQuery
+        .order("amount_cents", { ascending: true })
+        .order("expense_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      break;
+    case "date_desc":
+    default:
+      expensesQuery = expensesQuery
+        .order("expense_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      break;
+  }
+
   const { data: expenses, error } = await expensesQuery;
 
   if (error) {
-    return json({ error: "Failed to load expenses." }, { status: 500 });
+    return json(
+      { error: "Could not load expenses right now. Please try again." },
+      { status: 500 },
+    );
   }
 
   return json({ expenses: expenses ?? [] });
@@ -88,7 +120,7 @@ export async function POST(request) {
   try {
     payload = await request.json();
   } catch {
-    return json({ error: "Request body must be valid JSON." }, { status: 400 });
+    return json({ error: "Request body is invalid." }, { status: 400 });
   }
 
   const parsedPayload = createExpenseSchema.safeParse(payload);
@@ -96,7 +128,7 @@ export async function POST(request) {
   if (!parsedPayload.success) {
     return json(
       {
-        error: "Invalid expense payload.",
+        error: "Please review the form fields and try again.",
         details: parsedPayload.error.flatten().fieldErrors,
       },
       { status: 400 },
@@ -108,7 +140,7 @@ export async function POST(request) {
   if (!amountCents || amountCents <= 0) {
     return json(
       {
-        error: "Amount must be a positive number.",
+        error: "Amount must be greater than zero.",
       },
       { status: 400 },
     );
@@ -118,7 +150,7 @@ export async function POST(request) {
   const expenseToInsert = {
     amount_cents: amountCents,
     category: parsedPayload.data.category,
-    description: parsedPayload.data.description,
+    description: parsedPayload.data.description || "",
     expense_date: parsedPayload.data.date,
     idempotency_key: parsedPayload.data.idempotencyKey,
   };
@@ -143,7 +175,8 @@ export async function POST(request) {
     if (existingExpenseError || !existingExpense) {
       return json(
         {
-          error: "Expense already exists, but the saved record could not be loaded.",
+          error:
+            "This expense was already submitted, but we could not fetch the saved record.",
         },
         { status: 500 },
       );
@@ -152,5 +185,8 @@ export async function POST(request) {
     return json({ expense: existingExpense }, { status: 200 });
   }
 
-  return json({ error: "Failed to create expense." }, { status: 500 });
+  return json(
+    { error: "Could not save the expense right now. Please try again." },
+    { status: 500 },
+  );
 }

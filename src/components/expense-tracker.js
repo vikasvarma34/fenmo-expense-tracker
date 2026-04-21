@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   APP_CURRENCY_CODE,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/expense-options";
 
 const CUSTOM_CATEGORY_VALUE = "__custom__";
+const PENDING_SUBMIT_STORAGE_KEY = "fenmo.pending-expense-submit";
 
 const INITIAL_FORM_STATE = {
   amount: "",
@@ -35,16 +36,31 @@ function formatDate(dateValue) {
 
 function buildCategoryOptions(expenses) {
   const mergedCategories = new Set(DEFAULT_EXPENSE_CATEGORIES);
+  const customCategories = new Set();
 
   for (const expense of expenses) {
     if (expense.category) {
-      mergedCategories.add(expense.category);
+      if (DEFAULT_EXPENSE_CATEGORIES.includes(expense.category)) {
+        mergedCategories.add(expense.category);
+      } else {
+        customCategories.add(expense.category);
+      }
     }
   }
 
-  return Array.from(mergedCategories).sort((left, right) =>
-    left.localeCompare(right),
-  );
+  return [
+    ...Array.from(mergedCategories),
+    ...Array.from(customCategories).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+  ];
+}
+
+function mergeCategoryOptions(currentCategories, expenses) {
+  return buildCategoryOptions([
+    ...currentCategories.map((category) => ({ category })),
+    ...expenses,
+  ]);
 }
 
 function getSubmittedCategory(values) {
@@ -55,27 +71,31 @@ function getSubmittedCategory(values) {
 
 function validateExpenseForm(values) {
   const errors = {};
-  const amountValue = Number(values.amount);
+  const rawAmount = values.amount.trim();
+  const amountValue = Number(rawAmount);
   const submittedCategory = getSubmittedCategory(values);
+  const today = new Date().toISOString().slice(0, 10);
 
-  if (!values.amount || !Number.isFinite(amountValue) || amountValue <= 0) {
-    errors.amount = "Enter a valid amount greater than zero.";
+  if (!rawAmount) {
+    errors.amount = "Please enter an amount.";
+  } else if (!Number.isFinite(amountValue)) {
+    errors.amount = "Amount must be a valid number.";
+  } else if (amountValue <= 0) {
+    errors.amount = "Amount must be greater than zero.";
   }
 
   if (!submittedCategory) {
-    errors.category = "Choose a category or enter a custom one.";
+    errors.category = "Please choose a category.";
   }
 
   if (values.category === CUSTOM_CATEGORY_VALUE && !values.customCategory.trim()) {
-    errors.customCategory = "Custom category is required.";
-  }
-
-  if (!values.description.trim()) {
-    errors.description = "Description is required.";
+    errors.customCategory = "Please enter a custom category.";
   }
 
   if (!values.date) {
-    errors.date = "Date is required.";
+    errors.date = "Please select a date.";
+  } else if (values.date > today) {
+    errors.date = "Date cannot be in the future.";
   }
 
   return errors;
@@ -97,7 +117,46 @@ function buildExpensesUrl(category, sort) {
   return queryString ? `/api/expenses?${queryString}` : "/api/expenses";
 }
 
+function readPendingSubmit() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const storedValue = window.localStorage.getItem(PENDING_SUBMIT_STORAGE_KEY);
+
+  if (!storedValue) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(storedValue);
+  } catch {
+    window.localStorage.removeItem(PENDING_SUBMIT_STORAGE_KEY);
+    return null;
+  }
+}
+
+function writePendingSubmit(pendingSubmit) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(
+    PENDING_SUBMIT_STORAGE_KEY,
+    JSON.stringify(pendingSubmit),
+  );
+}
+
+function clearPendingSubmitStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(PENDING_SUBMIT_STORAGE_KEY);
+}
+
 export default function ExpenseTracker() {
+  const today = new Date().toISOString().slice(0, 10);
   const [formValues, setFormValues] = useState(INITIAL_FORM_STATE);
   const [fieldErrors, setFieldErrors] = useState({});
   const [expenses, setExpenses] = useState([]);
@@ -110,7 +169,31 @@ export default function ExpenseTracker() {
   const [submitError, setSubmitError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
-  const pendingIdempotencyKeyRef = useRef(null);
+  const [pendingSubmit, setPendingSubmit] = useState(null);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const hasRestoredPendingSubmitRef = useRef(false);
+
+  useEffect(() => {
+    if (hasRestoredPendingSubmitRef.current) {
+      return;
+    }
+
+    hasRestoredPendingSubmitRef.current = true;
+
+    const restoredPendingSubmit = readPendingSubmit();
+
+    if (!restoredPendingSubmit) {
+      return;
+    }
+
+    startTransition(() => {
+      setPendingSubmit(restoredPendingSubmit);
+      setFormValues(restoredPendingSubmit.formValues);
+      setSubmitError(
+        "A previous expense submission is pending. Save again to retry safely.",
+      );
+    });
+  }, []);
 
   useEffect(() => {
     async function loadExpenses() {
@@ -127,13 +210,16 @@ export default function ExpenseTracker() {
 
         const nextExpenses = payload.expenses ?? [];
         setExpenses(nextExpenses);
-        setCategoryOptions(buildCategoryOptions(nextExpenses));
+        setCategoryOptions((currentCategories) =>
+          mergeCategoryOptions(currentCategories, nextExpenses),
+        );
       } catch (error) {
         setLoadError(
           error instanceof Error ? error.message : "Failed to load expenses.",
         );
       } finally {
         setIsLoadingExpenses(false);
+        setHasLoadedOnce(true);
       }
     }
 
@@ -143,9 +229,29 @@ export default function ExpenseTracker() {
   const visibleTotalCents = useMemo(() => {
     return expenses.reduce((sum, expense) => sum + expense.amount_cents, 0);
   }, [expenses]);
+  const isInitialExpensesLoad = !hasLoadedOnce && isLoadingExpenses;
+
+  function getFriendlySubmitError(error) {
+    if (error instanceof Error) {
+      if (error.message.includes("Failed to fetch")) {
+        return "Could not save expense due to a network issue. Check your connection and try again.";
+      }
+
+      if (error.message) {
+        return error.message;
+      }
+    }
+
+    return "Could not save the expense right now. Please try again.";
+  }
 
   function updateFormValue(event) {
     const { name, value } = event.target;
+
+    if (pendingSubmit) {
+      setPendingSubmit(null);
+      clearPendingSubmitStorage();
+    }
 
     setFormValues((currentValues) => ({
       ...currentValues,
@@ -168,6 +274,17 @@ export default function ExpenseTracker() {
 
       return nextErrors;
     });
+    if (name === "amount") {
+      setFieldErrors((currentErrors) => {
+        if (!currentErrors.amount) {
+          return currentErrors;
+        }
+
+        const nextErrors = { ...currentErrors };
+        delete nextErrors.amount;
+        return nextErrors;
+      });
+    }
     setSubmitError("");
     setSuccessMessage("");
   }
@@ -186,9 +303,23 @@ export default function ExpenseTracker() {
     setSubmitError("");
     setSuccessMessage("");
 
-    const idempotencyKey =
-      pendingIdempotencyKeyRef.current || crypto.randomUUID();
-    pendingIdempotencyKeyRef.current = idempotencyKey;
+    const nextPendingSubmit = pendingSubmit || {
+      idempotencyKey: crypto.randomUUID(),
+      formValues: {
+        ...formValues,
+        category: formValues.category,
+        customCategory: formValues.customCategory,
+      },
+      requestPayload: {
+        amount: formValues.amount,
+        category: getSubmittedCategory(formValues),
+        description: formValues.description,
+        date: formValues.date,
+      },
+    };
+
+    setPendingSubmit(nextPendingSubmit);
+    writePendingSubmit(nextPendingSubmit);
 
     try {
       const response = await fetch("/api/expenses", {
@@ -197,11 +328,8 @@ export default function ExpenseTracker() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          amount: formValues.amount,
-          category: getSubmittedCategory(formValues),
-          description: formValues.description,
-          date: formValues.date,
-          idempotencyKey,
+          ...nextPendingSubmit.requestPayload,
+          idempotencyKey: nextPendingSubmit.idempotencyKey,
         }),
       });
       const payload = await response.json();
@@ -219,18 +347,22 @@ export default function ExpenseTracker() {
           }));
         }
 
+        if (response.status >= 400 && response.status < 500) {
+          setPendingSubmit(null);
+          clearPendingSubmitStorage();
+        }
+
         throw new Error(payload.error || "Failed to save expense.");
       }
 
-      pendingIdempotencyKeyRef.current = null;
+      setPendingSubmit(null);
+      clearPendingSubmitStorage();
       setFormValues(INITIAL_FORM_STATE);
       setFieldErrors({});
       setSuccessMessage("Expense saved.");
       setReloadToken((currentValue) => currentValue + 1);
     } catch (error) {
-      setSubmitError(
-        error instanceof Error ? error.message : "Failed to save expense.",
-      );
+      setSubmitError(getFriendlySubmitError(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -256,7 +388,7 @@ export default function ExpenseTracker() {
             <div className="rounded-2xl bg-white/10 px-5 py-4 backdrop-blur">
               <p className="text-sm text-slate-300">Visible total · INR</p>
               <p className="mt-1 text-2xl font-semibold">
-                {formatCurrency(visibleTotalCents)}
+                {isInitialExpensesLoad ? "Loading..." : formatCurrency(visibleTotalCents)}
               </p>
             </div>
           </div>
@@ -282,9 +414,9 @@ export default function ExpenseTracker() {
                 <input
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
                   name="amount"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*[.]?[0-9]+"
                   value={formValues.amount}
                   onChange={updateFormValue}
                   placeholder="24.99"
@@ -339,7 +471,7 @@ export default function ExpenseTracker() {
 
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-700">
-                  Description
+                  Description (optional)
                 </span>
                 <textarea
                   className="min-h-28 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
@@ -348,11 +480,6 @@ export default function ExpenseTracker() {
                   onChange={updateFormValue}
                   placeholder="Team lunch"
                 />
-                {fieldErrors.description ? (
-                  <p className="text-sm text-rose-600">
-                    {fieldErrors.description}
-                  </p>
-                ) : null}
               </label>
 
               <label className="block space-y-2">
@@ -362,6 +489,7 @@ export default function ExpenseTracker() {
                   name="date"
                   type="date"
                   value={formValues.date}
+                  max={today}
                   onChange={updateFormValue}
                 />
                 {fieldErrors.date ? (
@@ -385,7 +513,7 @@ export default function ExpenseTracker() {
                 type="submit"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Saving..." : "Save expense"}
+                {isSubmitting ? "Saving expense..." : "Save expense"}
               </button>
             </form>
           </section>
@@ -430,6 +558,9 @@ export default function ExpenseTracker() {
                     onChange={(event) => setSortOrder(event.target.value)}
                   >
                     <option value="date_desc">Newest first</option>
+                    <option value="date_asc">Oldest first</option>
+                    <option value="amount_desc">Amount high to low</option>
+                    <option value="amount_asc">Amount low to high</option>
                   </select>
                 </label>
               </div>
@@ -437,7 +568,14 @@ export default function ExpenseTracker() {
 
             {loadError ? (
               <div className="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {loadError}
+                <p>{loadError}</p>
+                <button
+                  className="mt-2 text-sm font-medium underline"
+                  onClick={() => setReloadToken((currentValue) => currentValue + 1)}
+                  type="button"
+                >
+                  Retry loading expenses
+                </button>
               </div>
             ) : null}
 
@@ -461,7 +599,18 @@ export default function ExpenseTracker() {
                           className="px-4 py-10 text-center text-slate-500"
                           colSpan={4}
                         >
-                          Loading expenses...
+                          {isInitialExpensesLoad
+                            ? "Loading your expenses..."
+                            : "Refreshing expenses..."}
+                        </td>
+                      </tr>
+                    ) : loadError && expenses.length === 0 ? (
+                      <tr>
+                        <td
+                          className="px-4 py-10 text-center text-slate-500"
+                          colSpan={4}
+                        >
+                          Unable to load expenses right now.
                         </td>
                       </tr>
                     ) : expenses.length === 0 ? (
@@ -470,7 +619,7 @@ export default function ExpenseTracker() {
                           className="px-4 py-10 text-center text-slate-500"
                           colSpan={4}
                         >
-                          No expenses found for the current filter.
+                          No expenses match the current filters.
                         </td>
                       </tr>
                     ) : (
@@ -483,7 +632,7 @@ export default function ExpenseTracker() {
                             {expense.category}
                           </td>
                           <td className="px-4 py-4 text-slate-600">
-                            {expense.description}
+                            {expense.description || "—"}
                           </td>
                           <td className="px-4 py-4 text-right font-medium text-slate-900">
                             {formatCurrency(expense.amount_cents)}
