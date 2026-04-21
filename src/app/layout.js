@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "Fenmo Expense Tracker",
-  description: "Track expenses with a simple retry-safe workflow.",
+  description: "Track expenses with reusable categories and currency-aware totals.",
 };
 
 export default function RootLayout({ children }) {

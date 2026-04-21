@@ -1,9 +1,25 @@
 import { z } from "zod";
 
+import {
+  DEFAULT_CURRENCY_CODE,
+  SUPPORTED_CURRENCIES,
+} from "@/lib/expense-options";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+const supportedCurrencyCodes = SUPPORTED_CURRENCIES.map(
+  (currency) => currency.code,
+);
 
 const createExpenseSchema = z.object({
   amount: z.union([z.number(), z.string()]),
+  currencyCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .refine(
+      (currencyCode) => supportedCurrencyCodes.includes(currencyCode),
+      "Currency is not supported.",
+    ),
   category: z.string().trim().min(1, "Category is required."),
   description: z.string().trim().min(1, "Description is required."),
   date: z.string().date("Date must be a valid ISO date."),
@@ -44,6 +60,13 @@ function json(data, init) {
   return Response.json(data, init);
 }
 
+function normalizeExpense(expense) {
+  return {
+    ...expense,
+    currency_code: expense.currency_code || DEFAULT_CURRENCY_CODE,
+  };
+}
+
 export async function GET(request) {
   const url = new URL(request.url);
   const query = {
@@ -79,7 +102,7 @@ export async function GET(request) {
     return json({ error: "Failed to load expenses." }, { status: 500 });
   }
 
-  return json({ expenses: expenses ?? [] });
+  return json({ expenses: (expenses ?? []).map(normalizeExpense) });
 }
 
 export async function POST(request) {
@@ -117,6 +140,7 @@ export async function POST(request) {
   const supabase = createSupabaseServerClient();
   const expenseToInsert = {
     amount_cents: amountCents,
+    currency_code: parsedPayload.data.currencyCode,
     category: parsedPayload.data.category,
     description: parsedPayload.data.description,
     expense_date: parsedPayload.data.date,
@@ -130,7 +154,17 @@ export async function POST(request) {
     .single();
 
   if (!insertError) {
-    return json({ expense: createdExpense }, { status: 201 });
+    return json({ expense: normalizeExpense(createdExpense) }, { status: 201 });
+  }
+
+  if (insertError.code === "42703" || insertError.code === "PGRST204") {
+    return json(
+      {
+        error:
+          "The database is missing the currency_code column. Run db/2026-04-21-add-currency-code.sql and try again.",
+      },
+      { status: 500 },
+    );
   }
 
   if (insertError.code === "23505") {
@@ -149,7 +183,7 @@ export async function POST(request) {
       );
     }
 
-    return json({ expense: existingExpense }, { status: 200 });
+    return json({ expense: normalizeExpense(existingExpense) }, { status: 200 });
   }
 
   return json({ error: "Failed to create expense." }, { status: 500 });
