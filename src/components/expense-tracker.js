@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -684,14 +685,21 @@ export default function ExpenseTracker() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <section className="rounded-3xl border border-slate-200 bg-white px-6 py-6 shadow-sm shadow-slate-200/70 sm:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-500">Fenmo</p>
-              <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
-                Expenses
-              </h1>
-              <p className="text-sm text-slate-600">
-                Track spending and review recent entries.
-              </p>
+            <div className="flex items-start gap-3">
+              <Image
+                src="/assets/fenmo-logo.png"
+                alt="Fenmo logo"
+                width={60}
+                height={60}
+                className="h-[60px] w-[60px] rounded-xl object-cover"
+                priority
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-slate-500">Fenmo</p>
+                <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
+                  Expense Tracker
+                </h1>
+              </div>
             </div>
             <div className="rounded-2xl bg-slate-950 px-5 py-4 text-white shadow-sm">
               <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-300">
