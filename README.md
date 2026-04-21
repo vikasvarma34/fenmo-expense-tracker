@@ -15,6 +15,10 @@ It supports:
 
 The app was built with production-like behavior in mind, especially around retries, page refreshes, and duplicate submissions.
 
+## Live Application
+
+https://fenmo-expense-tracker-mauve.vercel.app/
+
 ## Tech Stack
 
 - Next.js 16
@@ -56,18 +60,24 @@ The app was built with production-like behavior in mind, especially around retri
 
 1. Install dependencies:
 
+```bash
 npm install
+```
 
 2. Add environment variables in `.env.local`:
 
+```env
 SUPABASE_URL=your-supabase-url
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
 
 3. Use a Supabase project that already has the `expenses` table available.
 
 4. Start the development server:
 
+```bash
 npm run dev
+```
 
 5. Open `http://localhost:3000`
 
@@ -77,6 +87,7 @@ npm run dev
 
 Expected payload:
 
+```json
 {
   "amount": "24.99",
   "category": "Dining",
@@ -84,25 +95,23 @@ Expected payload:
   "date": "2026-04-21",
   "idempotencyKey": "uuid"
 }
+```
 
 Behavior:
-
-* validates required fields
-* converts amount to integer cents before insert
-* creates a new row when the idempotency key is new
-* returns the existing row when the same idempotency key is retried
+- validates required fields
+- converts amount to integer cents before insert
+- creates a new row when the idempotency key is new
+- returns the existing row when the same idempotency key is retried
 
 ### `GET /api/expenses`
 
 Supported query params:
-
-* `category`
-* `sort=date_desc | date_asc | amount_desc | amount_asc`
+- `category`
+- `sort=date_desc | date_asc | amount_desc | amount_asc`
 
 Response includes:
-
-* `expenses`: filtered and sorted list
-* `totalExpensesCents`: total for the same visible list
+- `expenses`: filtered and sorted list
+- `totalExpensesCents`: total for the same visible list
 
 ### `PATCH /api/expenses/[id]`
 
@@ -114,42 +123,44 @@ Deletes a single expense by id. In the UI, delete is exposed as a row action wit
 
 ## Project Structure
 
-* `src/app/page.js` — main page entry
-* `src/app/api/expenses/route.js` — create and list expense APIs
-* `src/app/api/expenses/[id]/route.js` — update and delete expense APIs
-* `src/components/expense-tracker.js` — main single-page UI
-* `src/lib/expense-api.js` — shared validation and amount helpers
-* `src/lib/expense-options.js` — category and currency defaults
-* `src/lib/supabase/server.js` — server-only Supabase client
+- `src/app/page.js` — main page entry
+- `src/app/api/expenses/route.js` — create and list expense APIs
+- `src/app/api/expenses/[id]/route.js` — update and delete expense APIs
+- `src/components/expense-tracker.js` — main single-page UI
+- `src/lib/expense-api.js` — shared validation and amount helpers
+- `src/lib/expense-options.js` — category and currency defaults
+- `src/lib/supabase/server.js` — server-only Supabase client
 
 ## Key Design Decisions
 
-* Kept the app in a single Next.js codebase to reduce complexity and keep the frontend and backend easy to maintain.
-* Used Route Handlers instead of a separate backend service to stay within the timebox while preserving a clean full-stack structure.
-* Used Supabase for durable persistence instead of an in-memory or local-only store.
-* Stored money as integer cents to avoid floating-point issues.
-* Used a database-backed `idempotency_key` plus client-side pending-submit persistence to handle retries and refreshes safely.
-* Kept the currency fixed to INR to avoid unnecessary schema and UX complexity for this submission.
-* Kept edit and delete flows lightweight by reusing the existing page and form instead of introducing extra pages or modal-heavy flows.
+- Kept the app in a single Next.js codebase to reduce complexity and keep the frontend and backend easy to maintain.
+- Used Route Handlers instead of a separate backend service to stay within the timebox while preserving a clean full-stack structure.
+- Used Supabase for durable persistence instead of an in-memory or local-only store.
+- Stored money as integer cents to avoid floating-point issues.
+- Used a database-backed `idempotency_key` plus client-side pending-submit persistence to handle retries and refreshes safely.
+- Kept the currency fixed to INR to avoid unnecessary schema and UX complexity for this submission.
+- Kept edit and delete flows lightweight by reusing the existing page and form instead of introducing extra pages or modal-heavy flows.
 
 ## Trade-offs Due to the Timebox
 
-* Focused on correctness, clarity, and safe request handling over broader feature expansion.
-* Added a few focused automated tests instead of broader end-to-end coverage.
-* Kept the UI simple and clean rather than building advanced analytics or dashboard-style views.
-* Used a practical responsive layout without heavily optimizing every mobile table interaction.
+- Focused on correctness, clarity, and safe request handling over broader feature expansion.
+- Added a few focused automated tests instead of broader end-to-end coverage.
+- Kept the UI simple and clean rather than building advanced analytics or dashboard-style views.
+- Used a practical responsive layout without heavily optimizing every mobile table interaction.
 
 ## Intentionally Not Done
 
-* Authentication, because it was not required for this assessment.
-* Advanced analytics and charts, to keep the scope focused on correctness and clarity.
-* More advanced category management, such as rename, merge, or category administration flows.
-* Broader automated test coverage across all flows, due to the timebox.
+- Authentication, because it was not required for this assessment.
+- Advanced analytics and charts, to keep the scope focused on correctness and clarity.
+- More advanced category management, such as rename, merge, or category administration flows.
+- Broader automated test coverage across all flows, due to the timebox.
 
 ## Verification
 
 Verified locally with:
 
+```bash
 npm run lint
 npm test
 npm run build
+```
