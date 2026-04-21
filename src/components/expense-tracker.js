@@ -3,35 +3,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  DEFAULT_CURRENCY_CODE,
+  APP_CURRENCY_CODE,
+  APP_CURRENCY_LOCALE,
   DEFAULT_EXPENSE_CATEGORIES,
-  SUPPORTED_CURRENCIES,
 } from "@/lib/expense-options";
 
 const CUSTOM_CATEGORY_VALUE = "__custom__";
 
 const INITIAL_FORM_STATE = {
   amount: "",
-  currencyCode: DEFAULT_CURRENCY_CODE,
   category: DEFAULT_EXPENSE_CATEGORIES[0],
   customCategory: "",
   description: "",
   date: new Date().toISOString().slice(0, 10),
 };
 
-function getCurrencyConfig(currencyCode) {
-  return (
-    SUPPORTED_CURRENCIES.find((currency) => currency.code === currencyCode) ||
-    SUPPORTED_CURRENCIES[0]
-  );
-}
-
-function formatCurrency(amountCents, currencyCode) {
-  const currency = getCurrencyConfig(currencyCode);
-
-  return new Intl.NumberFormat(currency.locale, {
+function formatCurrency(amountCents) {
+  return new Intl.NumberFormat(APP_CURRENCY_LOCALE, {
     style: "currency",
-    currency: currency.code,
+    currency: APP_CURRENCY_CODE,
   }).format(amountCents / 100);
 }
 
@@ -70,10 +60,6 @@ function validateExpenseForm(values) {
 
   if (!values.amount || !Number.isFinite(amountValue) || amountValue <= 0) {
     errors.amount = "Enter a valid amount greater than zero.";
-  }
-
-  if (!values.currencyCode) {
-    errors.currencyCode = "Currency is required.";
   }
 
   if (!submittedCategory) {
@@ -154,21 +140,8 @@ export default function ExpenseTracker() {
     void loadExpenses();
   }, [reloadToken, selectedCategory, sortOrder]);
 
-  const totalsByCurrency = useMemo(() => {
-    const totals = new Map();
-
-    for (const expense of expenses) {
-      const currencyCode = expense.currency_code || DEFAULT_CURRENCY_CODE;
-      totals.set(
-        currencyCode,
-        (totals.get(currencyCode) || 0) + expense.amount_cents,
-      );
-    }
-
-    return Array.from(totals.entries()).map(([currencyCode, amountCents]) => ({
-      currencyCode,
-      amountCents,
-    }));
+  const visibleTotalCents = useMemo(() => {
+    return expenses.reduce((sum, expense) => sum + expense.amount_cents, 0);
   }, [expenses]);
 
   function updateFormValue(event) {
@@ -225,7 +198,6 @@ export default function ExpenseTracker() {
         },
         body: JSON.stringify({
           amount: formValues.amount,
-          currencyCode: formValues.currencyCode,
           category: getSubmittedCategory(formValues),
           description: formValues.description,
           date: formValues.date,
@@ -274,36 +246,18 @@ export default function ExpenseTracker() {
           <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl space-y-3">
               <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                Track expenses with category guidance and currency-aware totals.
+                Track expenses with guided categories and a clean INR workflow.
               </h1>
               <p className="text-sm leading-6 text-slate-300 sm:text-base">
-                Add expenses in the original currency, reuse saved categories,
-                and review totals without unsafe conversions.
+                Add expenses, reuse saved categories, and review totals in a
+                single fixed currency.
               </p>
             </div>
-            <div className="flex flex-wrap gap-3">
-              {totalsByCurrency.length === 0 ? (
-                <div className="rounded-2xl bg-white/10 px-5 py-4 backdrop-blur">
-                  <p className="text-sm text-slate-300">Visible total</p>
-                  <p className="mt-1 text-2xl font-semibold">
-                    {formatCurrency(0, DEFAULT_CURRENCY_CODE)}
-                  </p>
-                </div>
-              ) : (
-                totalsByCurrency.map((total) => (
-                  <div
-                    key={total.currencyCode}
-                    className="rounded-2xl bg-white/10 px-5 py-4 backdrop-blur"
-                  >
-                    <p className="text-sm text-slate-300">
-                      Visible total · {total.currencyCode}
-                    </p>
-                    <p className="mt-1 text-2xl font-semibold">
-                      {formatCurrency(total.amountCents, total.currencyCode)}
-                    </p>
-                  </div>
-                ))
-              )}
+            <div className="rounded-2xl bg-white/10 px-5 py-4 backdrop-blur">
+              <p className="text-sm text-slate-300">Visible total · INR</p>
+              <p className="mt-1 text-2xl font-semibold">
+                {formatCurrency(visibleTotalCents)}
+              </p>
             </div>
           </div>
         </section>
@@ -315,54 +269,30 @@ export default function ExpenseTracker() {
                 Add expense
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Choose a common category, or add your own if needed.
+                Choose a common category, or add your own if needed. All
+                amounts are stored and shown in INR.
               </p>
             </div>
 
             <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-700">
-                    Amount
-                  </span>
-                  <input
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-                    name="amount"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={formValues.amount}
-                    onChange={updateFormValue}
-                    placeholder="24.99"
-                  />
-                  {fieldErrors.amount ? (
-                    <p className="text-sm text-rose-600">{fieldErrors.amount}</p>
-                  ) : null}
-                </label>
-
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-700">
-                    Currency
-                  </span>
-                  <select
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-                    name="currencyCode"
-                    value={formValues.currencyCode}
-                    onChange={updateFormValue}
-                  >
-                    {SUPPORTED_CURRENCIES.map((currency) => (
-                      <option key={currency.code} value={currency.code}>
-                        {currency.code} · {currency.label}
-                      </option>
-                    ))}
-                  </select>
-                  {fieldErrors.currencyCode ? (
-                    <p className="text-sm text-rose-600">
-                      {fieldErrors.currencyCode}
-                    </p>
-                  ) : null}
-                </label>
-              </div>
+              <label className="block space-y-2">
+                <span className="text-sm font-medium text-slate-700">
+                  Amount
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+                  name="amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={formValues.amount}
+                  onChange={updateFormValue}
+                  placeholder="24.99"
+                />
+                {fieldErrors.amount ? (
+                  <p className="text-sm text-rose-600">{fieldErrors.amount}</p>
+                ) : null}
+              </label>
 
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-700">
@@ -519,7 +449,6 @@ export default function ExpenseTracker() {
                       <th className="px-4 py-3 font-medium">Date</th>
                       <th className="px-4 py-3 font-medium">Category</th>
                       <th className="px-4 py-3 font-medium">Description</th>
-                      <th className="px-4 py-3 font-medium">Currency</th>
                       <th className="px-4 py-3 text-right font-medium">
                         Amount
                       </th>
@@ -530,7 +459,7 @@ export default function ExpenseTracker() {
                       <tr>
                         <td
                           className="px-4 py-10 text-center text-slate-500"
-                          colSpan={5}
+                          colSpan={4}
                         >
                           Loading expenses...
                         </td>
@@ -539,7 +468,7 @@ export default function ExpenseTracker() {
                       <tr>
                         <td
                           className="px-4 py-10 text-center text-slate-500"
-                          colSpan={5}
+                          colSpan={4}
                         >
                           No expenses found for the current filter.
                         </td>
@@ -556,14 +485,8 @@ export default function ExpenseTracker() {
                           <td className="px-4 py-4 text-slate-600">
                             {expense.description}
                           </td>
-                          <td className="px-4 py-4 text-slate-600">
-                            {expense.currency_code || DEFAULT_CURRENCY_CODE}
-                          </td>
                           <td className="px-4 py-4 text-right font-medium text-slate-900">
-                            {formatCurrency(
-                              expense.amount_cents,
-                              expense.currency_code || DEFAULT_CURRENCY_CODE,
-                            )}
+                            {formatCurrency(expense.amount_cents)}
                           </td>
                         </tr>
                       ))
