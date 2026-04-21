@@ -318,6 +318,8 @@ export default function ExpenseTracker() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalExpensesCents, setTotalExpensesCents] = useState(0);
   const hasRestoredPendingSubmitRef = useRef(false);
+  const editFormSectionRef = useRef(null);
+  const amountInputRef = useRef(null);
 
   function getFriendlyLoadError(error) {
     if (error instanceof Error) {
@@ -617,6 +619,13 @@ export default function ExpenseTracker() {
     setFieldErrors({});
     setEditingExpenseId(expense.id);
     setFormValues(buildFormValuesFromExpense(expense));
+    editFormSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+    window.setTimeout(() => {
+      amountInputRef.current?.focus({ preventScroll: true });
+    }, 250);
   }
 
   async function handleDeleteExpense(expense) {
@@ -700,7 +709,10 @@ export default function ExpenseTracker() {
         </section>
 
         <div className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:items-start">
-          <section className="self-start rounded-3xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/70">
+          <section
+            ref={editFormSectionRef}
+            className="self-start rounded-3xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/70"
+          >
             <div className="mb-6 space-y-1">
               <h2 className="text-lg font-semibold text-slate-950">
                 {editingExpenseId ? "Edit expense" : "Add expense"}
@@ -718,6 +730,7 @@ export default function ExpenseTracker() {
                   Amount
                 </span>
                 <input
+                  ref={amountInputRef}
                   className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-950 focus:ring-4 focus:ring-slate-950/5"
                   name="amount"
                   type="text"
