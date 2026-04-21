@@ -1,6 +1,19 @@
 # Fenmo Expense Tracker
 
-A single-page expense tracker built for a timed SDE assessment using Next.js App Router and Supabase Postgres.
+A minimal full-stack expense tracker built for a timed SDE assessment using Next.js App Router and Supabase Postgres.
+
+## Overview
+
+This project helps a user record and review personal expenses with a simple, correctness-focused workflow.
+
+It supports:
+- creating expenses
+- viewing saved expenses
+- filtering by category
+- sorting expenses
+- seeing the total for the current visible list
+
+The app was built with production-like behavior in mind, especially around retries, page refreshes, and duplicate submissions.
 
 ## Tech Stack
 
@@ -10,48 +23,51 @@ A single-page expense tracker built for a timed SDE assessment using Next.js App
 - Supabase Postgres
 - Zod
 
-## Features
+## Core Features
 
 - Create expenses through `POST /api/expenses`
 - List expenses through `GET /api/expenses`
 - Update expenses through `PATCH /api/expenses/[id]`
 - Delete expenses through `DELETE /api/expenses/[id]`
 - Persistent storage in Supabase
+- Filter expenses by category
+- Sort expenses by date and amount
+- Show total for the currently visible filtered list
+- Basic validation, loading states, and error states
+- Mobile-friendly responsive layout
+
+## Reliability and Data Handling
+
+- Idempotent expense creation using a database-backed `idempotency_key`
+- Refresh-safe retry flow by persisting pending create attempts in `localStorage`
+- Amounts stored as integer cents to avoid floating-point money issues
+- Server-side validation for required fields and invalid values
+
+## Additional UX Choices
+
 - Predefined categories with support for custom categories
-- Reuse saved categories in the form and filter controls
+- Reuse saved categories in form and filter controls
 - Single fixed currency workflow in INR
 - Inline edit flow with form reuse
 - Row-level delete action with confirmation
-- Pagination (10 expenses per page)
-- Filter-aware total expenses summary
-- Sort by newest, oldest, amount high-to-low, and amount low-to-high
-- Basic validation, loading states, and error states
-- Idempotent expense creation using a database-backed `idempotency_key`
-- Refresh-safe retry flow by persisting pending create attempts in `localStorage`
-- Mobile-friendly stacked layout with responsive expense cards
+- Pagination with 10 expenses per page
 
 ## Local Setup
 
 1. Install dependencies:
 
-```bash
 npm install
-```
 
-2. Add local environment variables in `.env.local`:
+2. Add environment variables in `.env.local`:
 
-```bash
 SUPABASE_URL=your-supabase-url
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-```
 
 3. Use a Supabase project that already has the `expenses` table available.
 
-4. Run the development server:
+4. Start the development server:
 
-```bash
 npm run dev
-```
 
 5. Open `http://localhost:3000`
 
@@ -61,7 +77,6 @@ npm run dev
 
 Expected payload:
 
-```json
 {
   "amount": "24.99",
   "category": "Dining",
@@ -69,27 +84,25 @@ Expected payload:
   "date": "2026-04-21",
   "idempotencyKey": "uuid"
 }
-```
 
 Behavior:
 
-- Validates required fields
-- Converts `amount` to integer cents before insert
-- Inserts a new row when the idempotency key is new
-- Returns the existing row when the same idempotency key is retried
-- Supports safe retried submissions with the same idempotency key
+* validates required fields
+* converts amount to integer cents before insert
+* creates a new row when the idempotency key is new
+* returns the existing row when the same idempotency key is retried
 
 ### `GET /api/expenses`
 
 Supported query params:
 
-- `category`
-- `sort=date_desc | date_asc | amount_desc | amount_asc`
+* `category`
+* `sort=date_desc | date_asc | amount_desc | amount_asc`
 
 Response includes:
 
-- `expenses`: filtered/sorted list
-- `totalExpensesCents`: total for the same filtered list
+* `expenses`: filtered and sorted list
+* `totalExpensesCents`: total for the same visible list
 
 ### `PATCH /api/expenses/[id]`
 
@@ -101,38 +114,43 @@ Deletes a single expense by id.
 
 ## Project Structure
 
-- `src/app/page.js`: main page entry
-- `src/app/api/expenses/route.js`: expense API route handler
-- `src/app/api/expenses/[id]/route.js`: edit and delete expense route handler
-- `src/app/icon.svg`: app icon used instead of the starter favicon
-- `src/components/expense-tracker.js`: single-page UI
-- `src/lib/expense-api.js`: shared API validation and amount helpers
-- `src/lib/expense-options.js`: app currency and category defaults
-- `src/lib/supabase/server.js`: server-only Supabase client
+* `src/app/page.js` — main page entry
+* `src/app/api/expenses/route.js` — create and list expense APIs
+* `src/app/api/expenses/[id]/route.js` — update and delete expense APIs
+* `src/components/expense-tracker.js` — main single-page UI
+* `src/lib/expense-api.js` — shared validation and amount helpers
+* `src/lib/expense-options.js` — category and currency defaults
+* `src/lib/supabase/server.js` — server-only Supabase client
 
-## Decisions and Tradeoffs
+## Key Design Decisions
 
-- Kept the app as a single-page workflow to stay focused on the required assessment scope.
-- Used Route Handlers instead of a separate backend service because the repo plan calls for a single-repo Next.js app.
-- Used the Supabase service role key only on the server and never in client code.
-- Used built-in expense categories inspired by common budgeting app patterns while still allowing custom categories.
-- Kept the currency fixed to INR to avoid unnecessary schema and UX complexity for this submission.
-- Kept edit and delete flows lightweight by reusing the existing form and adding small row actions instead of introducing modals or extra pages.
-- Added a few focused automated tests for idempotency and GET query behavior, while keeping broader test coverage out of scope due to the timebox.
+* Kept the app in a single Next.js codebase to reduce complexity and keep the frontend and backend easy to maintain.
+* Used Route Handlers instead of a separate backend service to stay within the timebox while preserving a clean full-stack structure.
+* Used Supabase for durable persistence instead of an in-memory or local-only store.
+* Stored money as integer cents to avoid floating-point issues.
+* Used a database-backed `idempotency_key` plus client-side pending-submit persistence to handle retries and refreshes safely.
+* Kept the currency fixed to INR to avoid unnecessary schema and UX complexity for this submission.
+* Kept edit and delete flows lightweight by reusing the existing page and form instead of introducing extra pages or modal-heavy flows.
+
+## Trade-offs Due to the Timebox
+
+* Focused on correctness, clarity, and safe request handling over broader feature expansion.
+* Added a few focused automated tests instead of broader end-to-end coverage.
+* Kept the UI simple and clean rather than building advanced analytics or dashboard-style views.
+* Used a practical responsive layout without heavily optimizing every mobile table interaction.
 
 ## Intentionally Not Done
 
-- Authentication, because it was not required for this assessment.
-- Advanced analytics and charts, to keep the scope focused on correctness and clarity.
-- More advanced category management (for example rename/merge rules), beyond simple predefined + custom category support.
-- Broad automated test coverage across all flows, due to timebox constraints.
+* Authentication, because it was not required for this assessment.
+* Advanced analytics and charts, to keep the scope focused on correctness and clarity.
+* More advanced category management, such as rename, merge, or category administration flows.
+* Broader automated test coverage across all flows, due to the timebox.
 
 ## Verification
 
 Verified locally with:
 
-```bash
 npm run lint
 npm test
 npm run build
-```
+
