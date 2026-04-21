@@ -22,9 +22,12 @@ A single-page expense tracker built for a timed SDE assessment using Next.js App
 - Single fixed currency workflow in INR
 - Inline edit flow with form reuse
 - Row-level delete action with confirmation
+- Pagination (10 expenses per page)
+- Filter-aware total expenses summary
 - Sort by newest, oldest, amount high-to-low, and amount low-to-high
 - Basic validation, loading states, and error states
 - Idempotent expense creation using a database-backed `idempotency_key`
+- Refresh-safe retry flow by persisting pending create attempts in `localStorage`
 - Mobile-friendly stacked layout with responsive expense cards
 
 ## Local Setup
@@ -42,13 +45,15 @@ SUPABASE_URL=your-supabase-url
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
 
-3. Run the development server:
+3. Use a Supabase project that already has the `expenses` table available.
+
+4. Run the development server:
 
 ```bash
 npm run dev
 ```
 
-4. Open `http://localhost:3000`
+5. Open `http://localhost:3000`
 
 ## API Notes
 
@@ -72,6 +77,7 @@ Behavior:
 - Converts `amount` to integer cents before insert
 - Inserts a new row when the idempotency key is new
 - Returns the existing row when the same idempotency key is retried
+- Supports safe retried submissions with the same idempotency key
 
 ### `GET /api/expenses`
 
@@ -79,6 +85,11 @@ Supported query params:
 
 - `category`
 - `sort=date_desc | date_asc | amount_desc | amount_asc`
+
+Response includes:
+
+- `expenses`: filtered/sorted list
+- `totalExpensesCents`: total for the same filtered list
 
 ### `PATCH /api/expenses/[id]`
 
@@ -107,6 +118,14 @@ Deletes a single expense by id.
 - Used built-in expense categories inspired by common budgeting app patterns while still allowing custom categories.
 - Kept the currency fixed to INR to avoid unnecessary schema and UX complexity for this submission.
 - Kept edit and delete flows lightweight by reusing the existing form and adding small row actions instead of introducing modals or extra pages.
+- Added a few focused automated tests for idempotency and GET query behavior, while keeping broader test coverage out of scope due to the timebox.
+
+## Intentionally Not Done
+
+- Authentication, because it was not required for this assessment.
+- Advanced analytics and charts, to keep the scope focused on correctness and clarity.
+- More advanced category management (for example rename/merge rules), beyond simple predefined + custom category support.
+- Broad automated test coverage across all flows, due to timebox constraints.
 
 ## Verification
 
@@ -114,5 +133,6 @@ Verified locally with:
 
 ```bash
 npm run lint
+npm test
 npm run build
 ```

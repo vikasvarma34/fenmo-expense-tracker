@@ -1,6 +1,9 @@
 import {
+  applyCategoryFilterToExpensesQuery,
+  applySortToExpensesQuery,
   amountToCents,
   buildExpenseMutation,
+  createExpenseWithIdempotency,
   createExpenseSchema,
   json,
   listExpensesQuerySchema,
@@ -27,36 +30,11 @@ export async function GET(request) {
 
   const supabase = createSupabaseServerClient();
   let expensesQuery = supabase.from("expenses").select("*");
-
-  if (parsedQuery.data.category) {
-    expensesQuery = expensesQuery.eq("category", parsedQuery.data.category);
-  }
-
-  switch (parsedQuery.data.sort) {
-    case "date_asc":
-      expensesQuery = expensesQuery
-        .order("expense_date", { ascending: true })
-        .order("created_at", { ascending: true });
-      break;
-    case "amount_desc":
-      expensesQuery = expensesQuery
-        .order("amount_cents", { ascending: false })
-        .order("expense_date", { ascending: false })
-        .order("created_at", { ascending: false });
-      break;
-    case "amount_asc":
-      expensesQuery = expensesQuery
-        .order("amount_cents", { ascending: true })
-        .order("expense_date", { ascending: false })
-        .order("created_at", { ascending: false });
-      break;
-    case "date_desc":
-    default:
-      expensesQuery = expensesQuery
-        .order("expense_date", { ascending: false })
-        .order("created_at", { ascending: false });
-      break;
-  }
+  expensesQuery = applyCategoryFilterToExpensesQuery(
+    expensesQuery,
+    parsedQuery.data.category,
+  );
+  expensesQuery = applySortToExpensesQuery(expensesQuery, parsedQuery.data.sort);
 
   const { data: expenses, error } = await expensesQuery;
 
@@ -67,18 +45,7 @@ export async function GET(request) {
     );
   }
 
-  const { data: allExpenseAmounts, error: totalError } = await supabase
-    .from("expenses")
-    .select("amount_cents");
-
-  if (totalError) {
-    return json(
-      { error: "Could not load expenses right now. Please try again." },
-      { status: 500 },
-    );
-  }
-
-  const totalExpensesCents = (allExpenseAmounts ?? []).reduce(
+  const totalExpensesCents = (expenses ?? []).reduce(
     (sum, expense) => sum + (expense.amount_cents ?? 0),
     0,
   );
@@ -123,39 +90,15 @@ export async function POST(request) {
     ...buildExpenseMutation(parsedPayload.data),
     idempotency_key: parsedPayload.data.idempotencyKey,
   };
-
-  const { data: createdExpense, error: insertError } = await supabase
-    .from("expenses")
-    .insert(expenseToInsert)
-    .select("*")
-    .single();
-
-  if (!insertError) {
-    return json({ expense: createdExpense }, { status: 201 });
-  }
-
-  if (insertError.code === "23505") {
-    const { data: existingExpense, error: existingExpenseError } = await supabase
-      .from("expenses")
-      .select("*")
-      .eq("idempotency_key", parsedPayload.data.idempotencyKey)
-      .single();
-
-    if (existingExpenseError || !existingExpense) {
-      return json(
-        {
-          error:
-            "This expense was already submitted, but we could not fetch the saved record.",
-        },
-        { status: 500 },
-      );
-    }
-
-    return json({ expense: existingExpense }, { status: 200 });
-  }
-
-  return json(
-    { error: "Could not save the expense right now. Please try again." },
-    { status: 500 },
+  const result = await createExpenseWithIdempotency(
+    supabase,
+    expenseToInsert,
+    parsedPayload.data.idempotencyKey,
   );
+
+  if (result.error) {
+    return json({ error: result.error }, { status: result.status });
+  }
+
+  return json({ expense: result.expense }, { status: result.status });
 }

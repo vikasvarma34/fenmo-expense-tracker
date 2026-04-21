@@ -61,3 +61,74 @@ export function buildExpenseMutation(payload) {
     expense_date: payload.date,
   };
 }
+
+export function applyCategoryFilterToExpensesQuery(expensesQuery, category) {
+  if (!category) {
+    return expensesQuery;
+  }
+
+  return expensesQuery.eq("category", category);
+}
+
+export function applySortToExpensesQuery(expensesQuery, sort = "date_desc") {
+  switch (sort) {
+    case "date_asc":
+      return expensesQuery
+        .order("expense_date", { ascending: true })
+        .order("created_at", { ascending: true });
+    case "amount_desc":
+      return expensesQuery
+        .order("amount_cents", { ascending: false })
+        .order("expense_date", { ascending: false })
+        .order("created_at", { ascending: false });
+    case "amount_asc":
+      return expensesQuery
+        .order("amount_cents", { ascending: true })
+        .order("expense_date", { ascending: false })
+        .order("created_at", { ascending: false });
+    case "date_desc":
+    default:
+      return expensesQuery
+        .order("expense_date", { ascending: false })
+        .order("created_at", { ascending: false });
+  }
+}
+
+export async function createExpenseWithIdempotency(
+  supabase,
+  expenseToInsert,
+  idempotencyKey,
+) {
+  const { data: createdExpense, error: insertError } = await supabase
+    .from("expenses")
+    .insert(expenseToInsert)
+    .select("*")
+    .single();
+
+  if (!insertError) {
+    return { expense: createdExpense, status: 201 };
+  }
+
+  if (insertError.code === "23505") {
+    const { data: existingExpense, error: existingExpenseError } = await supabase
+      .from("expenses")
+      .select("*")
+      .eq("idempotency_key", idempotencyKey)
+      .single();
+
+    if (existingExpenseError || !existingExpense) {
+      return {
+        error:
+          "This expense was already submitted, but we could not fetch the saved record.",
+        status: 500,
+      };
+    }
+
+    return { expense: existingExpense, status: 200 };
+  }
+
+  return {
+    error: "Could not save the expense right now. Please try again.",
+    status: 500,
+  };
+}
