@@ -48,8 +48,8 @@ The app was built with production-like behavior in mind, especially around retri
 - Predefined categories with support for custom categories
 - Reuse saved categories in form and filter controls
 - Single fixed currency workflow in INR
-- Inline edit flow with form reuse
-- Row-level delete action with confirmation
+- Inline edit flow with form reuse from row actions
+- Row-level delete action with confirmation and clear error handling
 - Pagination with 10 expenses per page
 
 ## Local Setup
@@ -106,11 +106,11 @@ Response includes:
 
 ### `PATCH /api/expenses/[id]`
 
-Updates an existing expense using the same validation rules as create.
+Updates an existing expense using the same validation rules as create. In the UI, edit is handled through the same form used for create.
 
 ### `DELETE /api/expenses/[id]`
 
-Deletes a single expense by id.
+Deletes a single expense by id. In the UI, delete is exposed as a row action with a confirmation step.
 
 ## Project Structure
 
@@ -153,4 +153,3 @@ Verified locally with:
 npm run lint
 npm test
 npm run build
-
