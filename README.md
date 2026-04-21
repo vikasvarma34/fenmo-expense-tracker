@@ -14,13 +14,18 @@ A single-page expense tracker built for a timed SDE assessment using Next.js App
 
 - Create expenses through `POST /api/expenses`
 - List expenses through `GET /api/expenses`
+- Update expenses through `PATCH /api/expenses/[id]`
+- Delete expenses through `DELETE /api/expenses/[id]`
 - Persistent storage in Supabase
 - Predefined categories with support for custom categories
 - Reuse saved categories in the form and filter controls
 - Single fixed currency workflow in INR
-- Date descending sort
+- Inline edit flow with form reuse
+- Row-level delete action with confirmation
+- Sort by newest, oldest, amount high-to-low, and amount low-to-high
 - Basic validation, loading states, and error states
 - Idempotent expense creation using a database-backed `idempotency_key`
+- Mobile-friendly stacked layout with responsive expense cards
 
 ## Local Setup
 
@@ -37,29 +42,13 @@ SUPABASE_URL=your-supabase-url
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
 
-3. Run the initial expenses table SQL in Supabase.
-
-4. Run the development server:
+3. Run the development server:
 
 ```bash
 npm run dev
 ```
 
-5. Open `http://localhost:3000`
-
-## Database
-
-The app expects an `expenses` table with these fields:
-
-- `id`
-- `idempotency_key`
-- `amount_cents`
-- `category`
-- `description`
-- `expense_date`
-- `created_at`
-
-Money is stored as integer cents in INR to avoid floating point issues.
+4. Open `http://localhost:3000`
 
 ## API Notes
 
@@ -89,14 +78,24 @@ Behavior:
 Supported query params:
 
 - `category`
-- `sort=date_desc`
+- `sort=date_desc | date_asc | amount_desc | amount_asc`
+
+### `PATCH /api/expenses/[id]`
+
+Updates an existing expense using the same validation rules as create.
+
+### `DELETE /api/expenses/[id]`
+
+Deletes a single expense by id.
 
 ## Project Structure
 
 - `src/app/page.js`: main page entry
 - `src/app/api/expenses/route.js`: expense API route handler
+- `src/app/api/expenses/[id]/route.js`: edit and delete expense route handler
 - `src/app/icon.svg`: app icon used instead of the starter favicon
 - `src/components/expense-tracker.js`: single-page UI
+- `src/lib/expense-api.js`: shared API validation and amount helpers
 - `src/lib/expense-options.js`: app currency and category defaults
 - `src/lib/supabase/server.js`: server-only Supabase client
 
@@ -107,6 +106,7 @@ Supported query params:
 - Used the Supabase service role key only on the server and never in client code.
 - Used built-in expense categories inspired by common budgeting app patterns while still allowing custom categories.
 - Kept the currency fixed to INR to avoid unnecessary schema and UX complexity for this submission.
+- Kept edit and delete flows lightweight by reusing the existing form and adding small row actions instead of introducing modals or extra pages.
 
 ## Verification
 

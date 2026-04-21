@@ -1,55 +1,11 @@
-import { z } from "zod";
-
+import {
+  amountToCents,
+  buildExpenseMutation,
+  createExpenseSchema,
+  json,
+  listExpensesQuerySchema,
+} from "@/lib/expense-api";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-const createExpenseSchema = z.object({
-  amount: z.union([z.number(), z.string()]),
-  category: z.string().trim().min(1, "Please select a category."),
-  description: z.string().trim().optional().default(""),
-  date: z
-    .string()
-    .date("Please enter a valid date.")
-    .refine((value) => value <= new Date().toISOString().slice(0, 10), {
-      message: "Date cannot be in the future.",
-    }),
-  idempotencyKey: z.string().trim().min(1, "Request key is required."),
-});
-const listExpensesQuerySchema = z.object({
-  category: z
-    .string()
-    .trim()
-    .min(1)
-    .optional(),
-  sort: z
-    .enum(["date_desc", "date_asc", "amount_desc", "amount_asc"])
-    .optional(),
-});
-
-function amountToCents(amount) {
-  if (typeof amount === "number") {
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return null;
-    }
-
-    return Math.round(amount * 100);
-  }
-
-  if (typeof amount !== "string") {
-    return null;
-  }
-
-  const normalizedAmount = Number(amount.trim());
-
-  if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
-    return null;
-  }
-
-  return Math.round(normalizedAmount * 100);
-}
-
-function json(data, init) {
-  return Response.json(data, init);
-}
 
 export async function GET(request) {
   const url = new URL(request.url);
@@ -111,7 +67,23 @@ export async function GET(request) {
     );
   }
 
-  return json({ expenses: expenses ?? [] });
+  const { data: allExpenseAmounts, error: totalError } = await supabase
+    .from("expenses")
+    .select("amount_cents");
+
+  if (totalError) {
+    return json(
+      { error: "Could not load expenses right now. Please try again." },
+      { status: 500 },
+    );
+  }
+
+  const totalExpensesCents = (allExpenseAmounts ?? []).reduce(
+    (sum, expense) => sum + (expense.amount_cents ?? 0),
+    0,
+  );
+
+  return json({ expenses: expenses ?? [], totalExpensesCents });
 }
 
 export async function POST(request) {
@@ -140,7 +112,7 @@ export async function POST(request) {
   if (!amountCents || amountCents <= 0) {
     return json(
       {
-        error: "Amount must be greater than zero.",
+        error: "Please enter a valid amount greater than zero.",
       },
       { status: 400 },
     );
@@ -148,10 +120,7 @@ export async function POST(request) {
 
   const supabase = createSupabaseServerClient();
   const expenseToInsert = {
-    amount_cents: amountCents,
-    category: parsedPayload.data.category,
-    description: parsedPayload.data.description || "",
-    expense_date: parsedPayload.data.date,
+    ...buildExpenseMutation(parsedPayload.data),
     idempotency_key: parsedPayload.data.idempotencyKey,
   };
 
